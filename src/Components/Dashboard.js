@@ -133,6 +133,41 @@ export default function Dashboard() {
     }
   }, [apiResponse && apiResponse.error]);
 
+  const handleUnifiedOutput = async () => {
+    try {
+      setLoading(true);
+      const formData = new FormData();
+      formData.append('mds_name', mdsName);
+      formData.append('grade_label', typeValue);
+
+      console.log('Sending request to unified output API with:', {
+        mds_name: mdsName,
+        grade_label: typeValue
+      });
+
+      const response = await fetch('/api/proxy/getunifiedoutput', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await response.json();
+      console.log('Unified Output API Response:', data);
+
+      if (!response.ok) {
+        throw new Error(data.errorMessage || 'Failed to get unified output');
+      }
+
+      setApiResponse(data);
+      setApiError(null);
+    } catch (error) {
+      console.error('Error in handleUnifiedOutput:', error);
+      setApiError(error.message || 'An error occurred while fetching unified output');
+      setApiResponse(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Box sx={{ 
       display: 'flex', 

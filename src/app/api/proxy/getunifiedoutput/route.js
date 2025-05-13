@@ -27,27 +27,83 @@ export async function POST(request) {
         statusText: response.statusText,
         body: errorText
       });
-      throw new Error(`API responded with status ${response.status}: ${errorText}`);
+      
+      return NextResponse.json(
+        { 
+          errorType: 'APIError',
+          errorMessage: `API responded with status ${response.status}: ${errorText}`
+        },
+        { 
+          status: response.status,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          }
+        }
+      );
     }
 
     const contentType = response.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
       const text = await response.text();
       console.error('Invalid content type:', contentType, 'Response:', text);
-      throw new Error('Invalid response format from API');
+      return NextResponse.json(
+        { 
+          errorType: 'InvalidResponse',
+          errorMessage: 'Invalid response format from API'
+        },
+        { 
+          status: 500,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          }
+        }
+      );
     }
 
     const data = await response.json();
     console.log('API Response:', data);
-    return NextResponse.json(data);
+    
+    return NextResponse.json(data, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    });
   } catch (error) {
     console.error('Error in getunifiedoutput route:', error);
     return NextResponse.json(
       { 
-        error: error.message,
+        errorType: 'Error',
+        errorMessage: error.message || 'An unknown error has occurred',
         details: error.stack
       }, 
-      { status: 500 }
+      { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      }
     );
   }
+}
+
+// Add OPTIONS handler for CORS preflight requests
+export async function OPTIONS() {
+  return NextResponse.json(
+    {},
+    {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    }
+  );
 }
