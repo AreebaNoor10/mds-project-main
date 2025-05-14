@@ -1,5 +1,5 @@
 'use client'
-import { Box, Typography, Button, Paper, TextField, Stepper, Step, StepLabel, Snackbar, Alert, CircularProgress } from '@mui/material';
+import { Box, Typography, Button, Paper, TextField, Stepper, Step, StepLabel, Snackbar, Alert, CircularProgress, useTheme, useMediaQuery } from '@mui/material';
 import { useState, useEffect, useRef } from 'react';
 import AddIcon from '@mui/icons-material/Add';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
@@ -20,6 +20,13 @@ import React from 'react';
 import MenuItem from '@mui/material/MenuItem';
 import IconButton from '@mui/material/IconButton';
 import CloseIcon from '@mui/icons-material/Close';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
+import { setupPdfWorker } from '../utils/pdfjs-worker';
+import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
+import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
+import RemoveIcon from '@mui/icons-material/Remove';
 
 export default function Dashboard() {
   const [addmtr, setaddMtr] = useState(false);
@@ -37,7 +44,21 @@ export default function Dashboard() {
   const [materialType, setMaterialType] = useState('');
   const [typeValue, setTypeValue] = useState('');
   const [showApiError, setShowApiError] = useState(true);
+  const [mtrMode, setMtrMode] = useState('data+pdf');
+  const [numPages, setNumPages] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [scale, setScale] = useState(1.0);
   
+  const theme = useTheme();
+  const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
+
+  // Editable state for Step 3 (MTR Data)
+  const [editableMtrData, setEditableMtrData] = useState({});
+  const [editingMtrCell, setEditingMtrCell] = useState(null); // {category, key}
+  // Editable state for Step 4 (Unified Spec)
+  const [editableUnifiedSpec, setEditableUnifiedSpec] = useState({});
+  const [editingUnifiedCell, setEditingUnifiedCell] = useState(null); // {specId, field}
+
   const fileData = [
     { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
     { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
@@ -133,6 +154,50 @@ export default function Dashboard() {
     }
   }, [apiResponse && apiResponse.error]);
 
+  useEffect(() => {
+    setupPdfWorker();
+  }, []);
+
+  // Reset PDF zoom when switching to data+pdf mode
+  useEffect(() => {
+    if (mtrMode === 'data+pdf') {
+      setScale(1.0);
+    }
+  }, [mtrMode]);
+
+  // Sync editableMtrData with apiResponse when it changes (Step 3)
+  useEffect(() => {
+    if (activeStep === 2 && apiResponse) {
+      const newData = {};
+      Object.entries(apiResponse).forEach(([category, data]) => {
+        newData[category] = { ...data };
+      });
+      setEditableMtrData(newData);
+    }
+  }, [apiResponse, activeStep]);
+
+  // Sync editableUnifiedSpec with apiResponse when it changes (Step 4)
+  useEffect(() => {
+    if (activeStep === 3 && apiResponse) {
+      const newSpec = {};
+      Object.entries(apiResponse).forEach(([specId, specData]) => {
+        const response = specData.response || {};
+        const rows = [];
+        Object.entries(response).forEach(([parentKey, value]) => {
+          if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            Object.entries(value).forEach(([childKey, childValue]) => {
+              rows.push({ field: `${parentKey}.${childKey}`, value: childValue });
+            });
+          } else {
+            rows.push({ field: parentKey, value: value });
+          }
+        });
+        newSpec[specId] = rows;
+      });
+      setEditableUnifiedSpec(newSpec);
+    }
+  }, [apiResponse, activeStep]);
+
   const handleUnifiedOutput = async () => {
     try {
       setLoading(true);
@@ -167,6 +232,17 @@ export default function Dashboard() {
       setLoading(false);
     }
   };
+
+  // PDF navigation and zoom handlers
+  const goToPrevPage = () => {
+    if (pageNumber > 1) setPageNumber(pageNumber - 1);
+  };
+  const goToNextPage = () => {
+    if (numPages && pageNumber < numPages) setPageNumber(pageNumber + 1);
+  };
+  const zoomIn = () => setScale(prev => Math.min(prev + 0.2, 1.5));
+  const zoomOut = () => setScale(prev => Math.max(prev - 0.2, 0.5));
+  const onDocumentLoadSuccess = ({ numPages }) => setNumPages(numPages);
 
   return (
     <Box sx={{ 
@@ -613,8 +689,8 @@ export default function Dashboard() {
                     />
                     {!uploadedFile ? (
                       <>
-                        <UploadFileIcon sx={{ fontSize: 40, color: '#222', mb: 1 }} />
-                        <Box sx={{ fontWeight: 500, fontSize: 18, color: '#222', mb: 0.5 }}>
+                        <UploadFileIcon sx={{ fontSize: 30, color: '#222', mb: 1 }} />
+                        <Box sx={{ fontWeight: 500, fontSize: 16, color: '#222', mb: 0.5 }}>
                           Click to upload or drag and drop
                         </Box>
                         <Box sx={{ fontSize: 15, color: '#444', opacity: 0.8 }}>
@@ -655,8 +731,11 @@ export default function Dashboard() {
                 {/* MDS Name input for step 1 */}
                 {activeStep === 0 && (
                   <Box sx={{ mt: 2, width: '100%', maxWidth: 400, mx: 'auto' }}>
+                    <Typography sx={{ fontSize: 14, fontWeight: 500, mb: 0.5 }}>
+                      MDS Name
+                    </Typography>
                     <TextField
-                      label="MDS Name *"
+                      select
                       value={mdsName}
                       onChange={e => {
                         setMdsName(e.target.value);
@@ -666,7 +745,20 @@ export default function Dashboard() {
                       helperText={mdsNameError ? 'MDS Name is required' : ''}
                       fullWidth
                       required
-                    />
+                      sx={{
+                        bgcolor: '#fff',
+                        borderRadius: 1,
+                        '& .MuiOutlinedInput-root': {
+                          height: 36
+                        }
+                      }}
+                    >
+                      {['MDS-1', 'MDS-3', 'MDS-4', 'MDS-6', 'MDS-7', 'MDS-8', 'MDS-119', 'MDS-170', 'MDS-172', 'MDS-201', 'MDS-204'].map((option) => (
+                        <MenuItem key={option} value={option}>
+                          {option}
+                        </MenuItem>
+                      ))}
+                    </TextField>
                   </Box>
                 )}
                 {/* Step 2: Grade Detection UI */}
@@ -883,80 +975,218 @@ export default function Dashboard() {
                     maxWidth: 1000,
                     mx: 'auto',
                   }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography sx={{ fontWeight: 700, fontSize: 20 }}>
-                          Material Certificate Details
-                        </Typography>
+                    {/* Card-like header with dropdown */}
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        display: 'flex',
+                        flexDirection: { xs: 'column', sm: 'row' },
+                        alignItems: { xs: 'flex-start', sm: 'center' },
+                        justifyContent: 'space-between',
+                        bgcolor: '#fff',
+                        borderRadius: 2,
+                        px: 2,
+                        py: 1,
+                        mb: 2,
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                        gap: { xs: 1, sm: 0 },
+                      }}
+                    >
+                      <Typography sx={{ fontWeight: 700, fontSize: 15 }}>
+                        Material Certificate Details
+                      </Typography>
+                      <TextField
+                        select
+                        size="small"
+                        value={mtrMode}
+                        onChange={e => setMtrMode(e.target.value)}
+                        sx={{
+                          minWidth: 160,
+                          bgcolor: '#f8f9fb',
+                          borderRadius: 1,
+                          fontSize: 14,
+                          '& .MuiOutlinedInput-root': { height: 32 }
+                        }}
+                      >
+                        <MenuItem value="data">Data Mode</MenuItem>
+                        <MenuItem value="pdf">PDF Mode</MenuItem>
+                        <MenuItem value="data+pdf">Data + PDF Mode</MenuItem>
+                      </TextField>
+                    </Paper>
+                    {/* End card-like header */}
+                    {/* Error Alert if any */}
+                      {apiResponse && (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType) ? (
+                        <Alert 
+                          severity="error" 
+                          sx={{ 
+                            mb: 2,
+                            '& .MuiAlert-message': {
+                              fontSize: '14px'
+                            }
+                          }}
+                        >
+                          {apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || 'Unknown error'}
+                        </Alert>
+                    ) : (
+                      <Box
+                        sx={{
+                          display: mtrMode === 'data+pdf' ? { xs: 'block', md: 'flex' } : 'block',
+                          gap: mtrMode === 'data+pdf' ? 2 : 0,
+                          alignItems: 'flex-start',
+                        }}
+                      >
+                        {/* PDF Viewer */}
+                        {(mtrMode === 'pdf' || mtrMode === 'data+pdf') && uploadedFile && uploadedFile.type === 'application/pdf' && (
+                          <Box
+                            sx={{
+                              flex: mtrMode === 'data+pdf' ? 1 : 'unset',
+                              width: mtrMode === 'data+pdf' ? { xs: '100%', md: '50%' } : '100%',
+                              mb: mtrMode === 'data+pdf' ? { xs: 2, md: 0 } : 2,
+                              minWidth: 0,
+                              maxWidth: '100%',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              bgcolor: '#fff',
+                              borderRadius: 2,
+                              p: 2,
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                              height: mtrMode === 'data+pdf' ? 700 : 'auto',
+                              overflowY: mtrMode === 'data+pdf' ? 'auto' : 'visible',
+                            }}
+                          >
+                            <Box sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexWrap: 'wrap',
+                              gap: { xs: 1, sm: 2 },
+                              mb: 2,
+                              width: '100%',
+                              px: { xs: 0.5, sm: 0 },
+                            }}>
+                              {/* Paging */}
+                              <Button onClick={goToPrevPage} disabled={pageNumber <= 1} size="small" sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                <ArrowBackIosNewIcon fontSize="small" />
+                              </Button>
+                              <Typography sx={{ minWidth: { xs: 40, sm: 60 }, textAlign: 'center', fontSize: 16, flexShrink: 1, mx: { xs: 0.5, sm: 1 } }}>{pageNumber} of {numPages || 1}</Typography>
+                              <Button onClick={goToNextPage} disabled={pageNumber >= (numPages || 1)} size="small" sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                <ArrowForwardIosIcon fontSize="small" />
+                              </Button>
+                              {/* Zoom controls */}
+                              {(mtrMode === 'pdf' || (mtrMode === 'data+pdf' && isSmallScreen)) && <>
+                                <Button onClick={zoomOut} size="small" disabled={scale <= 0.5} sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                  <RemoveIcon fontSize="small" />
+                                </Button>
+                                <Typography sx={{ minWidth: 32, textAlign: 'center', fontSize: 16, flexShrink: 1, mx: { xs: 0.5, sm: 1 } }}>{Math.round(scale * 100)}%</Typography>
+                                <Button onClick={zoomIn} size="small" disabled={scale >= 1.5} sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                  <AddIcon fontSize="small" />
+                                </Button>
+                              </>}
+                            </Box>
+                            <Box className="pdf-container" sx={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400, overflow: 'auto' }}>
+                              <Document
+                                file={uploadedFile}
+                                onLoadSuccess={onDocumentLoadSuccess}
+                                loading={<div>Loading PDF...</div>}
+                                error={<div>Failed to load PDF!</div>}
+                              >
+                                <Page 
+                                  pageNumber={pageNumber}
+                                  scale={mtrMode === 'pdf' || (mtrMode === 'data+pdf' && isSmallScreen) ? scale : 1.0}
+                                  width={mtrMode === 'data+pdf' && !isSmallScreen ? 400 : undefined}
+                                  renderTextLayer={true}
+                                  renderAnnotationLayer={true}
+                                />
+                              </Document>
+                            </Box>
+                          </Box>
+                        )}
+                        {/* Table */}
+                        {(mtrMode === 'data' || mtrMode === 'data+pdf') && apiResponse && (
+                          <Box
+                            sx={{
+                              flex: mtrMode === 'data+pdf' ? 1 : 'unset',
+                              width: mtrMode === 'data+pdf' ? { xs: '100%', md: '50%' } : '100%',
+                              minWidth: 0,
+                              maxWidth: '100%',
+                              bgcolor: '#fff',
+                              borderRadius: 2,
+                              p: 2,
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                              display: 'block',
+                              height: mtrMode === 'data+pdf' ? 700 : 'auto',
+                              overflowY: mtrMode === 'data+pdf' ? 'auto' : 'visible',
+                            }}
+                          >
+                            <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
+                              <thead style={{ background: '#f3f4f6' }}>
+                                <tr>
+                                  <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Field</th>
+                                  <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Value</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {Object.entries(apiResponse).map(([category, data]) => (
+                                  <React.Fragment key={category}>
+                                    {Object.entries(data).map(([key, value]) => {
+                                      let displayValue = '';
+                                      if (value === null || value === undefined) {
+                                        displayValue = '';
+                                      } else if (typeof value === 'object') {
+                                        displayValue = JSON.stringify(value);
+                                      } else {
+                                        displayValue = value.toString();
+                                      }
+                                      const isEditing = editingMtrCell && editingMtrCell.category === category && editingMtrCell.key === key;
+                                      const localValue =
+                                        editableMtrData[category] && editableMtrData[category][key] !== undefined
+                                          ? editableMtrData[category][key]
+                                          : displayValue;
+                                      return (
+                                        <tr key={`${category}-${key}`} className="border-t border-gray-200">
+                                          <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
+                                            {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                                          </td>
+                                          <td
+                                            style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%', cursor: 'pointer' }}
+                                            onClick={() => setEditingMtrCell({ category, key })}
+                                          >
+                                            {isEditing ? (
+                                              <input
+                                                type="text"
+                                                value={localValue}
+                                                autoFocus
+                                                style={{ fontSize: 14, width: '100%', padding: 4 }}
+                                                onChange={e => {
+                                                  setEditableMtrData(prev => ({
+                                                    ...prev,
+                                                    [category]: {
+                                                      ...prev[category],
+                                                      [key]: e.target.value,
+                                                    },
+                                                  }));
+                                                }}
+                                                onBlur={() => setEditingMtrCell(null)}
+                                                onKeyDown={e => {
+                                                  if (e.key === 'Enter') setEditingMtrCell(null);
+                                                }}
+                                              />
+                                            ) : (
+                                              localValue
+                                            )}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </React.Fragment>
+                                ))}
+                              </tbody>
+                            </table>
+                          </Box>
+                        )}
                       </Box>
-                      <Button variant="outlined" size="small" sx={{ borderRadius: 2, fontWeight: 500, fontSize: 14, px: 2, py: 0.5, textTransform: 'none', bgcolor: '#fff', borderColor: '#e0e0e0', color: '#222', '&:hover': { bgcolor: '#f5f5f5', borderColor: '#bdbdbd' } }}>
-                        Data Mode
-                      </Button>
-                    </Box>
-                    <Box sx={{ overflowX: 'auto' }}>
-                      {apiResponse && apiResponse.error ? (
-                        <Alert 
-                          severity="error" 
-                          sx={{ 
-                            mb: 2,
-                            '& .MuiAlert-message': {
-                              fontSize: '14px'
-                            }
-                          }}
-                        >
-                          {apiResponse.error}
-                        </Alert>
-                      ) : apiResponse ? (
-                        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
-                          <thead style={{ background: '#f3f4f6' }}>
-                            <tr>
-                              <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Field</th>
-                              <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Value</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(apiResponse).map(([category, data]) => (
-                              <React.Fragment key={category}>
-                                {Object.entries(data).map(([key, value]) => {
-                                  // Handle different types of values
-                                  let displayValue = '';
-                                  if (value === null || value === undefined) {
-                                    displayValue = '';
-                                  } else if (typeof value === 'object') {
-                                    displayValue = JSON.stringify(value);
-                                  } else {
-                                    displayValue = value.toString();
-                                  }
-                                  
-                                  return (
-                                    <tr key={`${category}-${key}`} className="border-t border-gray-200">
-                                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
-                                        {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                      </td>
-                                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
-                                        {displayValue}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </React.Fragment>
-                            ))}
-                          </tbody>
-                        </table>
-                      ) : (
-                        <Alert 
-                          severity="error" 
-                          sx={{ 
-                            mb: 2,
-                            '& .MuiAlert-message': {
-                              fontSize: '14px'
-                            }
-                          }}
-                        >
-                          No data available. Please try again.
-                        </Alert>
-                      )}
-                    </Box>
+                    )}
                   </Paper>
                 )}
                 {/* Step 4: Unified Spec Matching Table UI */}
@@ -969,23 +1199,47 @@ export default function Dashboard() {
                     maxWidth: 1000,
                     mx: 'auto',
                   }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                      <Typography sx={{ fontWeight: 700, fontSize: 20 }}>
+                    {/* Card-like header with dropdown */}
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        display: 'flex',
+                        flexDirection: { xs: 'column', sm: 'row' },
+                        alignItems: { xs: 'flex-start', sm: 'center' },
+                        justifyContent: 'space-between',
+                        bgcolor: '#fff',
+                        borderRadius: 2,
+                        px: 2,
+                        py: 1,
+                        mb: 2,
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                        gap: { xs: 1, sm: 0 },
+                      }}
+                    >
+                      <Typography sx={{ fontWeight: 700, fontSize: 15 }}>
                         Unified Spec Matching
                       </Typography>
                       <TextField
                         select
                         size="small"
-                        value="PDF Mode"
-                        sx={{ minWidth: 120, bgcolor: '#fff', borderRadius: 1 }}
-                        SelectProps={{ native: true }}
+                        value={mtrMode}
+                        onChange={e => setMtrMode(e.target.value)}
+                        sx={{
+                          minWidth: 160,
+                          bgcolor: '#f8f9fb',
+                          borderRadius: 1,
+                          fontSize: 14,
+                          '& .MuiOutlinedInput-root': { height: 32 }
+                        }}
                       >
-                        <option value="PDF Mode">PDF Mode</option>
-                        <option value="Text Mode">Text Mode</option>
+                        <MenuItem value="data">Data Mode</MenuItem>
+                        <MenuItem value="pdf">PDF Mode</MenuItem>
+                        <MenuItem value="data+pdf">Data + PDF Mode</MenuItem>
                       </TextField>
-                    </Box>
-                    
-                    {apiResponse && apiResponse.error ? (
+                    </Paper>
+                    {/* End card-like header */}
+                    {/* Error Alert if any */}
+                    {apiResponse && (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType) ? (
                       <Alert 
                         severity="error" 
                         sx={{ 
@@ -995,70 +1249,179 @@ export default function Dashboard() {
                           }
                         }}
                       >
-                        {apiResponse.error}
+                        {apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || 'Unknown error'}
                       </Alert>
-                    ) : apiResponse ? (
-                      Object.entries(apiResponse).map(([specId, specData]) => {
-                        // Flatten the nested response object for table rows
-                        const response = specData.response || {};
-                        const rows = [];
-                        Object.entries(response).forEach(([parentKey, value]) => {
-                          if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                            Object.entries(value).forEach(([childKey, childValue]) => {
-                              rows.push({
-                                field: `${parentKey}.${childKey}`,
-                                value: childValue
-                              });
-                            });
-                          } else {
-                            rows.push({
-                              field: parentKey,
-                              value: value
-                            });
-                          }
-                        });
-                        return (
-                          <Box key={specId} sx={{ mb: 4 }}>
-                            <Typography sx={{ fontWeight: 600, fontSize: 16, mb: 2, color: '#222' }}>
-                              Specification ID: {specId}
-                            </Typography>
-                            <Box sx={{ overflowX: 'auto' }}>
-                              <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
-                                <thead style={{ background: '#f3f4f6' }}>
-                                  <tr>
-                                    <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Field</th>
-                                    <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Value</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.map(({ field, value }) => (
-                                    <tr key={field} className="border-t border-gray-200">
-                                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
-                                        {field.split('.').pop().replace(/_/g, ' ')}
-                                      </td>
-                                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
-                                        {value === null || value === undefined ? '' : value.toString()}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                    ) : (
+                      <Box
+                        sx={{
+                          display: mtrMode === 'data+pdf' ? { xs: 'block', md: 'flex' } : 'block',
+                          gap: mtrMode === 'data+pdf' ? 2 : 0,
+                          alignItems: 'flex-start',
+                        }}
+                      >
+                        {/* PDF Viewer */}
+                        {(mtrMode === 'pdf' || mtrMode === 'data+pdf') && uploadedFile && uploadedFile.type === 'application/pdf' && (
+                          <Box
+                            sx={{
+                              flex: mtrMode === 'data+pdf' ? 1 : 'unset',
+                              width: mtrMode === 'data+pdf' ? { xs: '100%', md: '50%' } : '100%',
+                              mb: mtrMode === 'data+pdf' ? { xs: 2, md: 0 } : 2,
+                              minWidth: 0,
+                              maxWidth: '100%',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              bgcolor: '#fff',
+                              borderRadius: 2,
+                              p: 2,
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                              height: mtrMode === 'data+pdf' ? 700 : 'auto',
+                              overflowY: mtrMode === 'data+pdf' ? 'auto' : 'visible',
+                            }}
+                          >
+                            <Box sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexWrap: 'wrap',
+                              gap: { xs: 1, sm: 2 },
+                              mb: 2,
+                              width: '100%',
+                              px: { xs: 0.5, sm: 0 },
+                            }}>
+                              {/* Paging */}
+                              <Button onClick={goToPrevPage} disabled={pageNumber <= 1} size="small" sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                <ArrowBackIosNewIcon fontSize="small" />
+                              </Button>
+                              <Typography sx={{ minWidth: { xs: 40, sm: 60 }, textAlign: 'center', fontSize: 16, flexShrink: 1, mx: { xs: 0.5, sm: 1 } }}>{pageNumber} of {numPages || 1}</Typography>
+                              <Button onClick={goToNextPage} disabled={pageNumber >= (numPages || 1)} size="small" sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                <ArrowForwardIosIcon fontSize="small" />
+                              </Button>
+                              {/* Zoom controls */}
+                              {(mtrMode === 'pdf' || (mtrMode === 'data+pdf' && isSmallScreen)) && <>
+                                <Button onClick={zoomOut} size="small" disabled={scale <= 0.5} sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                  <RemoveIcon fontSize="small" />
+                                </Button>
+                                <Typography sx={{ minWidth: 32, textAlign: 'center', fontSize: 16, flexShrink: 1, mx: { xs: 0.5, sm: 1 } }}>{Math.round(scale * 100)}%</Typography>
+                                <Button onClick={zoomIn} size="small" disabled={scale >= 1.5} sx={{ minWidth: 32, p: 0, flexShrink: 0 }}>
+                                  <AddIcon fontSize="small" />
+                                </Button>
+                              </>}
+                            </Box>
+                            <Box className="pdf-container" sx={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400, overflow: 'auto' }}>
+                              <Document
+                                file={uploadedFile}
+                                onLoadSuccess={onDocumentLoadSuccess}
+                                loading={<div>Loading PDF...</div>}
+                                error={<div>Failed to load PDF!</div>}
+                              >
+                                <Page 
+                                  pageNumber={pageNumber}
+                                  scale={mtrMode === 'pdf' || (mtrMode === 'data+pdf' && isSmallScreen) ? scale : 1.0}
+                                  width={mtrMode === 'data+pdf' && !isSmallScreen ? 400 : undefined}
+                                  renderTextLayer={true}
+                                  renderAnnotationLayer={true}
+                                />
+                              </Document>
                             </Box>
                           </Box>
-                        );
-                      })
-                    ) : (
-                      <Alert 
-                        severity="error" 
-                        sx={{ 
-                          mb: 2,
-                          '& .MuiAlert-message': {
-                            fontSize: '14px'
-                          }
-                        }}
-                      >
-                        No data available. Please try again.
-                      </Alert>
+                        )}
+                        {/* Table */}
+                        {(mtrMode === 'data' || mtrMode === 'data+pdf') && apiResponse && (
+                          <Box
+                            sx={{
+                              flex: mtrMode === 'data+pdf' ? 1 : 'unset',
+                              width: mtrMode === 'data+pdf' ? { xs: '100%', md: '50%' } : '100%',
+                              minWidth: 0,
+                              maxWidth: '100%',
+                              bgcolor: '#fff',
+                              borderRadius: 2,
+                              p: 2,
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                              display: 'block',
+                              height: mtrMode === 'data+pdf' ? 700 : 'auto',
+                              overflowY: mtrMode === 'data+pdf' ? 'auto' : 'visible',
+                            }}
+                          >
+                            {Object.entries(apiResponse).map(([specId, specData]) => {
+                              // Flatten the nested response object for table rows
+                              const response = specData.response || {};
+                              const rows = [];
+                              Object.entries(response).forEach(([parentKey, value]) => {
+                                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                                  Object.entries(value).forEach(([childKey, childValue]) => {
+                                    rows.push({ field: `${parentKey}.${childKey}`, value: childValue });
+                                  });
+                                } else {
+                                  rows.push({ field: parentKey, value: value });
+                                }
+                              });
+                              return (
+                                <Box key={specId} sx={{ mb: 4 }}>
+                                  <Typography sx={{ fontWeight: 600, fontSize: 16, mb: 2, color: '#222' }}>
+                                    Specification ID: {specId}
+                                  </Typography>
+                                  <Box sx={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
+                                      <thead style={{ background: '#f3f4f6' }}>
+                                        <tr>
+                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Field</th>
+                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Value</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(editableUnifiedSpec[specId] || rows).map(({ field, value }, idx) => {
+                                          const isEditing = editingUnifiedCell && editingUnifiedCell.specId === specId && editingUnifiedCell.field === field;
+                                          const localValue =
+                                            editableUnifiedSpec[specId] && editableUnifiedSpec[specId][idx] && editableUnifiedSpec[specId][idx].value !== undefined
+                                              ? editableUnifiedSpec[specId][idx].value
+                                              : value === null || value === undefined ? '' : value.toString();
+                                          return (
+                                            <tr key={field} className="border-t border-gray-200">
+                                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
+                                                {field.split('.').pop().replace(/_/g, ' ')}
+                                              </td>
+                                              <td
+                                                style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%', cursor: 'pointer' }}
+                                                onClick={() => setEditingUnifiedCell({ specId, field })}
+                                              >
+                                                {isEditing ? (
+                                                  <input
+                                                    type="text"
+                                                    value={localValue}
+                                                    autoFocus
+                                                    style={{ fontSize: 14, width: '100%', padding: 4 }}
+                                                    onChange={e => {
+                                                      setEditableUnifiedSpec(prev => {
+                                                        const updated = { ...prev };
+                                                        if (!updated[specId]) updated[specId] = [...rows];
+                                                        updated[specId] = updated[specId].map((row, i) =>
+                                                          row.field === field ? { ...row, value: e.target.value } : row
+                                                        );
+                                                        return updated;
+                                                      });
+                                                    }}
+                                                    onBlur={() => setEditingUnifiedCell(null)}
+                                                    onKeyDown={e => {
+                                                      if (e.key === 'Enter') setEditingUnifiedCell(null);
+                                                    }}
+                                                  />
+                                                ) : (
+                                                  localValue
+                                                )}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </Box>
+                                </Box>
+                              );
+                            })}
+                          </Box>
+                        )}
+                      </Box>
                     )}
                   </Paper>
                 )}
@@ -1324,7 +1687,7 @@ export default function Dashboard() {
                             console.log('Supervisor Decision API Response:', data);
                             console.log('Type from API:', data?.decision?.type);
                             setApiResponse(data);
-                            setTypeValue(data?.decision?.type || '4140');
+                            setTypeValue(data?.decision?.type);
                             setLoading(false);
                             setActiveStep((prev) => prev + 1);
                           })
@@ -1338,6 +1701,9 @@ export default function Dashboard() {
                           
                           const formData = new FormData();
                           formData.append('pdf_text_id', apiResponse?.pdf_text || '');
+
+                          // Log the pdf_text_id being sent to the extract key API
+                          console.log('Sending pdf_text_id to extract key API:', apiResponse?.pdf_text || '');
 
                           fetch('/api/proxy/extractkey', {
                             method: 'POST',

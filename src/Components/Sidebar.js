@@ -24,7 +24,7 @@ export default function Sidebar() {
   const menuItems = [
     { text: 'Dashboard', icon: <GridViewIcon />, path: '/dashboard' },
     { text: 'History', icon: <CalendarMonthOutlinedIcon />, path: '/history' },
-    { text: 'Setting', icon: <SettingsOutlinedIcon />, path: '/setting' },
+    // { text: 'Setting', icon: <SettingsOutlinedIcon />, path: '/setting' },
   ];
 
   // Content to be rendered for both desktop and mobile
