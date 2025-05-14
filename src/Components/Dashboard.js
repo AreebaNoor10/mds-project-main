@@ -58,6 +58,7 @@ export default function Dashboard() {
   // Editable state for Step 4 (Unified Spec)
   const [editableUnifiedSpec, setEditableUnifiedSpec] = useState({});
   const [editingUnifiedCell, setEditingUnifiedCell] = useState(null); // {specId, field}
+  const [mtrKeysId, setMtrKeysId] = useState(null); // Store mtr_keys_id from extract key API
 
   const fileData = [
     { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
@@ -204,28 +205,26 @@ export default function Dashboard() {
       const formData = new FormData();
       formData.append('mds_name', mdsName);
       formData.append('grade_label', typeValue);
-
+      if (mtrKeysId) {
+        formData.append('mtr_id', mtrKeysId);
+      }
       console.log('Sending request to unified output API with:', {
         mds_name: mdsName,
-        grade_label: typeValue
+        grade_label: typeValue,
+        mtr_id: mtrKeysId
       });
-
       const response = await fetch('/api/proxy/getunifiedoutput', {
         method: 'POST',
         body: formData
       });
-
       const data = await response.json();
       console.log('Unified Output API Response:', data);
-
       if (!response.ok) {
         throw new Error(data.errorMessage || 'Failed to get unified output');
       }
-
       setApiResponse(data);
       setApiError(null);
     } catch (error) {
-      console.error('Error in handleUnifiedOutput:', error);
       setApiError(error.message || 'An error occurred while fetching unified output');
       setApiResponse(null);
     } finally {
@@ -1103,7 +1102,7 @@ export default function Dashboard() {
                           </Box>
                         )}
                         {/* Table */}
-                        {(mtrMode === 'data' || mtrMode === 'data+pdf') && apiResponse && (
+                        {(mtrMode === 'data' || mtrMode === 'data+pdf') && apiResponse && apiResponse.extracted_mtr_keys && apiResponse.extracted_mtr_keys.response && (
                           <Box
                             sx={{
                               flex: mtrMode === 'data+pdf' ? 1 : 'unset',
@@ -1119,73 +1118,66 @@ export default function Dashboard() {
                               overflowY: mtrMode === 'data+pdf' ? 'auto' : 'visible',
                             }}
                           >
-                            <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
-                              <thead style={{ background: '#f3f4f6' }}>
-                                <tr>
-                                  <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Field</th>
-                                  <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Value</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {Object.entries(apiResponse).map(([category, data]) => (
-                                  <React.Fragment key={category}>
-                                    {Object.entries(data).map(([key, value]) => {
-                                      let displayValue = '';
-                                      if (value === null || value === undefined) {
-                                        displayValue = '';
-                                      } else if (typeof value === 'object') {
-                                        displayValue = JSON.stringify(value);
-                                      } else {
-                                        displayValue = value.toString();
-                                      }
-                                      const isEditing = editingMtrCell && editingMtrCell.category === category && editingMtrCell.key === key;
-                                      const localValue =
-                                        editableMtrData[category] && editableMtrData[category][key] !== undefined
-                                          ? editableMtrData[category][key]
-                                          : displayValue;
-                                      return (
-                                        <tr key={`${category}-${key}`} className="border-t border-gray-200">
-                                          <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
-                                            {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                          </td>
-                                          <td
-                                            style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%', cursor: 'pointer' }}
-                                            onClick={() => setEditingMtrCell({ category, key })}
-                                          >
-                                            {isEditing ? (
-                                              <input
-                                                type="text"
-                                                value={localValue}
-                                                autoFocus
-                                                style={{ fontSize: 14, width: '100%', padding: 4 }}
-                                                onChange={e => {
-                                                  setEditableMtrData(prev => ({
-                                                    ...prev,
-                                                    [category]: {
-                                                      ...prev[category],
-                                                      [key]: e.target.value,
-                                                    },
-                                                  }));
-                                                }}
-                                                onBlur={() => setEditingMtrCell(null)}
-                                                onKeyDown={e => {
-                                                  if (e.key === 'Enter') setEditingMtrCell(null);
-                                                }}
-                                              />
-                                            ) : (
-                                              localValue
-                                            )}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </React.Fragment>
-                                ))}
-                              </tbody>
-                            </table>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
+                          <thead style={{ background: '#f3f4f6' }}>
+                            <tr>
+                              <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Field</th>
+                              <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                                {Object.entries(apiResponse.extracted_mtr_keys.response).flatMap(([category, fields]) =>
+                                  Object.entries(fields).map(([key, value]) => {
+                                    const isEditing = editingMtrCell && editingMtrCell.category === category && editingMtrCell.key === key;
+                                    let localValue =
+                                      editableMtrData[category] && editableMtrData[category][key] !== undefined
+                                        ? editableMtrData[category][key]
+                                        : value === null || value === undefined ? '' : value.toString();
+                                    if (typeof localValue === 'object' && localValue !== null) {
+                                      localValue = JSON.stringify(localValue);
+                                  }
+                                  return (
+                                      <tr key={category + '-' + key} className="border-t border-gray-200">
+                                      <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
+                                          {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                      </td>
+                                        <td
+                                          style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%', cursor: 'pointer' }}
+                                          onClick={() => setEditingMtrCell({ category, key })}
+                                        >
+                                          {isEditing ? (
+                                            <input
+                                              type="text"
+                                              value={localValue}
+                                              autoFocus
+                                              style={{ fontSize: 14, width: '100%', padding: 4 }}
+                                              onChange={e => {
+                                                setEditableMtrData(prev => ({
+                                                  ...prev,
+                                                  [category]: {
+                                                    ...prev[category],
+                                                    [key]: e.target.value,
+                                                  },
+                                                }));
+                                              }}
+                                              onBlur={() => setEditingMtrCell(null)}
+                                              onKeyDown={e => {
+                                                if (e.key === 'Enter') setEditingMtrCell(null);
+                                              }}
+                                            />
+                                          ) : (
+                                            localValue
+                                          )}
+                                      </td>
+                                    </tr>
+                                  );
+                                  })
+                                )}
+                          </tbody>
+                        </table>
                           </Box>
-                        )}
-                      </Box>
+                      )}
+                    </Box>
                     )}
                   </Paper>
                 )}
@@ -1344,18 +1336,7 @@ export default function Dashboard() {
                             }}
                           >
                             {Object.entries(apiResponse).map(([specId, specData]) => {
-                              // Flatten the nested response object for table rows
-                              const response = specData.response || {};
-                              const rows = [];
-                              Object.entries(response).forEach(([parentKey, value]) => {
-                                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                                  Object.entries(value).forEach(([childKey, childValue]) => {
-                                    rows.push({ field: `${parentKey}.${childKey}`, value: childValue });
-                                  });
-                                } else {
-                                  rows.push({ field: parentKey, value: value });
-                                }
-                              });
+                              const resultsArr = specData.results || [];
                               return (
                                 <Box key={specId} sx={{ mb: 4 }}>
                                   <Typography sx={{ fontWeight: 600, fontSize: 16, mb: 2, color: '#222' }}>
@@ -1365,52 +1346,57 @@ export default function Dashboard() {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
                                       <thead style={{ background: '#f3f4f6' }}>
                                         <tr>
-                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Field</th>
-                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444', width: '50%' }}>Value</th>
+                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Checkpoint</th>
+                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>MTR</th>
+                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Unified</th>
+                                          <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Status</th>
                                         </tr>
                                       </thead>
                                       <tbody>
-                                        {(editableUnifiedSpec[specId] || rows).map(({ field, value }, idx) => {
-                                          const isEditing = editingUnifiedCell && editingUnifiedCell.specId === specId && editingUnifiedCell.field === field;
-                                          const localValue =
-                                            editableUnifiedSpec[specId] && editableUnifiedSpec[specId][idx] && editableUnifiedSpec[specId][idx].value !== undefined
-                                              ? editableUnifiedSpec[specId][idx].value
-                                              : value === null || value === undefined ? '' : value.toString();
+                                        {resultsArr.map((row, idx) => {
+                                          // Format MTR and Unified fields if they are objects
+                                          const formatValue = (val) => {
+                                            if (val === null || val === undefined) return '';
+                                            if (typeof val === 'object') {
+                                              return Object.entries(val).map(([k, v]) => `${k}: ${v}`).join(', ');
+                                            }
+                                            return val;
+                                          };
                                           return (
-                                            <tr key={field} className="border-t border-gray-200">
-                                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%' }}>
-                                                {field.split('.').pop().replace(/_/g, ' ')}
-                                              </td>
-                                              <td
-                                                style={{ padding: '12px 16px', fontSize: 14, color: '#444', width: '50%', cursor: 'pointer' }}
-                                                onClick={() => setEditingUnifiedCell({ specId, field })}
-                                              >
-                                                {isEditing ? (
-                                                  <input
-                                                    type="text"
-                                                    value={localValue}
-                                                    autoFocus
-                                                    style={{ fontSize: 14, width: '100%', padding: 4 }}
-                                                    onChange={e => {
-                                                      setEditableUnifiedSpec(prev => {
-                                                        const updated = { ...prev };
-                                                        if (!updated[specId]) updated[specId] = [...rows];
-                                                        updated[specId] = updated[specId].map((row, i) =>
-                                                          row.field === field ? { ...row, value: e.target.value } : row
-                                                        );
-                                                        return updated;
-                                                      });
-                                                    }}
-                                                    onBlur={() => setEditingUnifiedCell(null)}
-                                                    onKeyDown={e => {
-                                                      if (e.key === 'Enter') setEditingUnifiedCell(null);
-                                                    }}
-                                                  />
-                                                ) : (
-                                                  localValue
+                                            <tr key={row.checkpoint + '-' + idx} className="border-t border-gray-200">
+                                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{row.checkpoint}</td>
+                                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{formatValue(row.mtr)}</td>
+                                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{formatValue(row.unified)}</td>
+                                              <td style={{ padding: '12px 16px', fontSize: 14 }}>
+                                                {row.status === 'Pass' && (
+                                                  <span style={{
+                                                    display: 'inline-flex', alignItems: 'center', padding: '2px 12px', borderRadius: 16,
+                                                    background: '#e6f4ea', color: '#188038', fontWeight: 500, fontSize: 14, border: '1px solid #b7e1cd', verticalAlign: 'middle'
+                                                  }}>
+                                                    <span style={{ fontSize: 16, marginRight: 6 }}>✅</span> Pass
+                                                  </span>
+                                                )}
+                                                {row.status === 'Fail' && (
+                                                  <span style={{
+                                                    display: 'inline-flex', alignItems: 'center', padding: '2px 12px', borderRadius: 16,
+                                                    background: '#fbeaea', color: '#d93025', fontWeight: 500, fontSize: 14, border: '1px solid #fbcaca', verticalAlign: 'middle'
+                                                  }}>
+                                                    <span style={{ fontSize: 16, marginRight: 6 }}>❌</span> Fail
+                                                  </span>
+                                                )}
+                                                {(row.status === 'Review' || row.status === 'Warning') && (
+                                                  <span style={{
+                                                    display: 'inline-flex', alignItems: 'center', padding: '2px 12px', borderRadius: 16,
+                                                    background: '#fff4e5', color: '#e58900', fontWeight: 500, fontSize: 14, border: '1px solid #ffe0b2', verticalAlign: 'middle'
+                                                  }}>
+                                                    <span style={{ fontSize: 16, marginRight: 6 }}>⚠️</span> {row.status}
+                                                  </span>
+                                                )}
+                                                {!(row.status === 'Pass' || row.status === 'Fail' || row.status === 'Review' || row.status === 'Warning') && (
+                                                  <span style={{ fontSize: 14, color: '#444' }}>{row.status}</span>
                                                 )}
                                               </td>
-                                            </tr>
+                                          </tr>
                                           );
                                         })}
                                       </tbody>
@@ -1716,6 +1702,9 @@ export default function Dashboard() {
                             if (data?.material_identification?.material_grade) {
                               setMaterialType(data.material_identification.material_grade);
                             }
+                            if (data?.mtr_keys_id) {
+                              setMtrKeysId(data.mtr_keys_id);
+                            }
                             setLoading(false);
                             setActiveStep((prev) => prev + 1);
                           })
@@ -1725,18 +1714,18 @@ export default function Dashboard() {
                             setLoading(false);
                           });
                         } else if (activeStep === 2) {
-                          console.log('Type value from step 2 at Continue:', typeValue);
                           setLoading(true);
-                          
                           const formData = new FormData();
                           formData.append('mds_name', mdsName);
                           formData.append('grade_label', typeValue);
-
+                          if (mtrKeysId) {
+                            formData.append('mtr_id', mtrKeysId);
+                          }
                           console.log('Sending to unified output API:', { 
                             mds_name: mdsName, 
-                            grade_label: typeValue
+                            grade_label: typeValue,
+                            mtr_id: mtrKeysId
                           });
-
                           fetch('/api/proxy/getunifiedoutput', {
                             method: 'POST',
                             body: formData
