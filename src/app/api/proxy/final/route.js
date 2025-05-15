@@ -8,8 +8,18 @@ export async function POST(request) {
 
     if (!mtr_id || !unified_file) {
       return NextResponse.json(
-        { error: 'Missing required parameters: mtr_id and unified_file are required' },
-        { status: 400 }
+        { 
+          errorType: 'ValidationError',
+          errorMessage: 'Missing required parameters: mtr_id and unified_file are required' 
+        },
+        { 
+          status: 400,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          }
+        }
       );
     }
 
@@ -25,13 +35,38 @@ export async function POST(request) {
       })
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      return NextResponse.json(data, { status: response.status });
+    const contentType = response.headers.get('content-type');
+    let data;
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = await response.text();
     }
 
-    return NextResponse.json(data);
+    if (!response.ok) {
+      return NextResponse.json(
+        { 
+          errorType: 'APIError',
+          errorMessage: data.error || data.message || 'Backend server error'
+        }, 
+        { 
+          status: response.status,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          }
+        }
+      );
+    }
+
+    return NextResponse.json(data, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      }
+    });
   } catch (error) {
     console.error('Final report API error:', error);
     return NextResponse.json(
@@ -39,7 +74,14 @@ export async function POST(request) {
         errorType: 'Error',
         errorMessage: error.message || 'An unknown error has occurred'
       },
-      { status: 500 }
+      { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
+      }
     );
   }
 }
