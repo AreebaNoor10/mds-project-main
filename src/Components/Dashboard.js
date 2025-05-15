@@ -48,7 +48,31 @@ export default function Dashboard() {
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
+  const [historyData, setHistoryData] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [selectedSpecId, setSelectedSpecId] = useState(null);
+  const [totalCounts, setTotalCounts] = useState({
+    inprogress: 0,
+    completed: 0,
+    review: 0
+  });
   
+  // Add new state variables for storing API responses for each step
+  const [step1Response, setStep1Response] = useState(null);
+  const [step2Response, setStep2Response] = useState(null);
+  const [step3Response, setStep3Response] = useState(null);
+  const [step4Response, setStep4Response] = useState(null);
+
+  // Add new state near the top with other state declarations
+  const [showUnifiedFileError, setShowUnifiedFileError] = useState(false);
+  const [showRecordViewError, setShowRecordViewError] = useState(false);
+  const [recordViewError, setRecordViewError] = useState('');
+
+  // Add this state near the top with other state declarations
+  const [statusChanges, setStatusChanges] = useState({});
+  const [editingStatusRow, setEditingStatusRow] = useState(null);
+
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -57,38 +81,18 @@ export default function Dashboard() {
   const [editingMtrCell, setEditingMtrCell] = useState(null); // {category, key}
   // Editable state for Step 4 (Unified Spec)
   const [editableUnifiedSpec, setEditableUnifiedSpec] = useState({});
-  const [editingUnifiedCell, setEditingUnifiedCell] = useState(null); // {specId, field}
   const [mtrKeysId, setMtrKeysId] = useState(null); // Store mtr_keys_id from extract key API
 
-  const fileData = [
-    { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'test-cert1.pdf', type: 'PDF', metadata: 'Copper C11000, ASTM B152', date: '2023-05-01', status: 'draft' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'test-cert1.pdf', type: 'PDF', metadata: 'Copper C11000, ASTM B152', date: '2023-05-01', status: 'draft' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'test-cert1.pdf', type: 'PDF', metadata: 'Copper C11000, ASTM B152', date: '2023-05-01', status: 'draft' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-    { filename: 'MTR-2345.pdf', type: 'PDF', metadata: 'Steel Grade 304, ASTM A240', date: '2023-05-01', status: 'processing' },
-    { filename: 'alloy-plate.png', type: 'Image (Text)', metadata: 'Aluminum 6061, ISO 6361', date: '2023-05-02', status: 'completed' },
-  ];
+ 
 
   // Calculate total pages
-  const totalItems = fileData.length;
+  const totalItems = historyData.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   
   // Get current page items
   const indexOfLastItem = page * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = fileData.slice(indexOfFirstItem, indexOfLastItem);
+  const currentItems = historyData.slice(indexOfFirstItem, indexOfLastItem);
 
   // Change page
   const handleChangePage = (newPage) => {
@@ -112,8 +116,8 @@ export default function Dashboard() {
       
       // Add some pages near the end
       if (totalPages > 5) {
-        pageNumbers.push(67);
-        pageNumbers.push(68);
+        pageNumbers.push(totalPages - 1);
+        pageNumbers.push(totalPages);
       } else {
         // Add remaining pages for small total page counts
         for (let i = 4; i <= totalPages; i++) {
@@ -136,9 +140,9 @@ export default function Dashboard() {
   ];
   
   const stats = [
-    { title: 'Draft', count: '2', icon: <DescriptionOutlinedIcon sx={{ fontSize: 20 }} /> },
-    { title: 'Pending', count: '5', icon: <AccessTimeIcon sx={{ fontSize: 20 }} /> },
-    { title: 'Completed', count: '109', icon: <CheckCircleOutlineIcon sx={{ fontSize: 20 }} /> },
+    { title: 'Draft', count: totalCounts.review || '0', icon: <DescriptionOutlinedIcon sx={{ fontSize: 20 }} /> },
+    { title: 'Pending', count: totalCounts.inprogress || '0', icon: <AccessTimeIcon sx={{ fontSize: 20 }} /> },
+    { title: 'Completed', count: totalCounts.completed || '0', icon: <CheckCircleOutlineIcon sx={{ fontSize: 20 }} /> },
   ];
 
   // Helper to get visible steps for mobile
@@ -199,6 +203,49 @@ export default function Dashboard() {
     }
   }, [apiResponse, activeStep]);
 
+  // Add useEffect for fetching history data
+  useEffect(() => {
+    const fetchHistoryData = async () => {
+      try {
+        setHistoryLoading(true);
+        const response = await fetch('/api/proxy/history');
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || data.errorMessage || data.errorType || 'Failed to fetch history data');
+        }
+
+        if (data.history_response) {
+          setHistoryData(data.history_response);
+        } else {
+          setHistoryData([]);
+        }
+        
+        if (data.total_counts) {
+          setTotalCounts(data.total_counts);
+        }
+        
+        setHistoryError(null);
+      } catch (err) {
+        setHistoryError(err.message);
+        setHistoryData([]);
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+
+    fetchHistoryData();
+  }, []);
+
+  // Calculate total pages for history
+  const totalHistoryItems = historyData.length;
+  const totalHistoryPages = Math.ceil(totalHistoryItems / itemsPerPage);
+  
+  // Get current page items for history
+  const indexOfLastHistoryItem = page * itemsPerPage;
+  const indexOfFirstHistoryItem = indexOfLastHistoryItem - itemsPerPage;
+  const currentHistoryItems = historyData.slice(indexOfFirstHistoryItem, indexOfLastHistoryItem);
+
   const handleUnifiedOutput = async () => {
     try {
       setLoading(true);
@@ -242,6 +289,28 @@ export default function Dashboard() {
   const zoomIn = () => setScale(prev => Math.min(prev + 0.2, 1.5));
   const zoomOut = () => setScale(prev => Math.max(prev - 0.2, 0.5));
   const onDocumentLoadSuccess = ({ numPages }) => setNumPages(numPages);
+
+  useEffect(() => {
+    // Check if we have data from History page
+    const mtrResponse = localStorage.getItem('mtrResponse');
+    const mtrMdsName = localStorage.getItem('mtrMdsName');
+    const mtrType = localStorage.getItem('mtrType');
+
+    if (mtrResponse) {
+      const parsedResponse = JSON.parse(mtrResponse);
+      setApiResponse(parsedResponse);
+      setStep1Response(parsedResponse);
+      setMdsName(mtrMdsName || '');
+      setTypeValue(mtrType || '');
+      setaddMtr(true);
+      setActiveStep(1);
+
+      // Clear the localStorage data
+      localStorage.removeItem('mtrResponse');
+      localStorage.removeItem('mtrMdsName');
+      localStorage.removeItem('mtrType');
+    }
+  }, []);
 
   return (
     <Box sx={{ 
@@ -354,110 +423,180 @@ export default function Dashboard() {
           </Box>
           
           <Box sx={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      height: '100%',
-    }}>
-      {/* Table Container */}
-      <div className="w-full rounded-lg bg-gray-50 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-full table-auto">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="py-4 px-6 text-left text-sm font-medium text-gray-700">File name</th>
-                <th className="py-4 px-6 text-left text-sm font-medium text-gray-700">Type</th>
-                <th className="py-4 px-6 text-left text-sm font-medium text-gray-700">Metadata</th>
-                <th className="py-4 px-6 text-left text-sm font-medium text-gray-700">Upload date</th>
-                <th className="py-4 px-6 text-left text-sm font-medium text-gray-700">Status</th>
-                <th className="py-4 px-6 text-center text-sm font-medium text-gray-700">Action</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white">
-              {currentItems.map((row, index) => (
-                <tr key={index} className="border-t border-gray-200">
-                  <td className="py-4 px-6 text-sm text-gray-800 whitespace-nowrap">{row.filename}</td>
-                  <td className="py-4 px-6 text-sm text-gray-800 whitespace-nowrap">{row.type}</td>
-                  <td className="py-4 px-6 text-sm text-gray-800 whitespace-nowrap">{row.metadata}</td>
-                  <td className="py-4 px-6 text-sm text-gray-800 whitespace-nowrap">{row.date}</td>
-                  <td className="py-4 px-6 whitespace-nowrap">
-                    {row.status === 'completed' && (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-300 whitespace-nowrap">
-                        ✅ Completed
-                      </span>
-                    )}
-                    {row.status === 'processing' && (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-50 text-yellow-800 border border-yellow-300 whitespace-nowrap">
-                        ⏳ Processing
-                      </span>
-                    )}
-                    {row.status === 'draft' && (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
-                        📝 Draft
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-4 px-6 text-center">
-                    <button className="text-gray-500 hover:text-blue-600">
-                      <RemoveRedEyeOutlinedIcon fontSize="small" />
+            display: 'flex', 
+            flexDirection: 'column', 
+            height: '100%',
+          }}>
+            {historyLoading ? (
+              <Box sx={{ p: 3, textAlign: 'center' }}>
+                <Typography>Loading...</Typography>
+              </Box>
+            ) : historyError ? (
+              <Alert 
+                severity="error" 
+                sx={{ 
+                  mb: 2,
+                  '& .MuiAlert-message': {
+                    fontSize: '14px'
+                  }
+                }}
+              >
+                {historyError}
+              </Alert>
+            ) : (
+              <>
+                {/* Table Container */}
+                <div className="w-full rounded-lg bg-gray-50 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-full table-auto">
+                      <thead className="bg-gray-100">
+                        <tr>
+                          {historyData.length > 0 && Object.keys(historyData[0]).map((key) => (
+                            <th key={key} className="py-4 px-6 text-left text-sm font-medium text-gray-700">
+                              {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                            </th>
+                          ))}
+                          <th className="py-4 px-6 text-left text-sm font-medium text-gray-700">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white">
+                        {currentItems.map((row, index) => (
+                          <tr key={index} className="border-t border-gray-200">
+                            {Object.entries(row).map(([key, value]) => (
+                              <td key={key} className="py-4 px-6 text-sm text-gray-800 whitespace-nowrap">
+                                {key === 'status' ? (
+                                  value === 'completed' ? (
+                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-300 whitespace-nowrap">
+                                      ✅ Completed
+                                    </span>
+                                  ) : value === 'inprogress' ? (
+                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-yellow-50 text-yellow-800 border border-yellow-300 whitespace-nowrap">
+                                      ⏳ Processing
+                                    </span>
+                                  ) : value === 'draft' ? (
+                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-300 whitespace-nowrap">
+                                      📝 Draft
+                                    </span>
+                                  ) : value
+                                ) : value}
+                              </td>
+                            ))}
+                            <td className="py-4 px-6 text-sm text-gray-800 whitespace-nowrap">
+                              <IconButton
+                                size="small"
+                                onClick={async () => {
+                                  try {
+                                    const formData = new FormData();
+                                    formData.append('record_pdf_id', row.id);
+                                    
+                                    const response = await fetch('/api/proxy/recordview', {
+                                      method: 'POST',
+                                      body: formData
+                                    });
+                                    
+                                    const data = await response.json();
+                                    console.log('Record View API Response:', data);
+                                    
+                                    if (!response.ok) {
+                                      throw new Error(data.error || data.errorMessage || data.errorType || 'Failed to fetch record view data');
+                                    }
+                                    
+                                    // Format the API response to match the expected structure
+                                    const formattedResponse = {
+                                      decision: {
+                                        heat_number: data.decision?.heat_number || '',
+                                        lot_number: data.decision?.lot_number || '',
+                                        raw_material_size: data.decision?.raw_material_size || '',
+                                        strength: data.decision?.strength || '',
+                                        type: data.decision?.type || ''
+                                      },
+                                      mds_name: data.mds_name || '',
+                                      pdf_text: data.pdf_text || ''
+                                    };
+                                    
+                                    // Set the formatted response and navigate to step 2
+                                    setApiResponse(formattedResponse);
+                                    setStep1Response(formattedResponse);
+                                    setMdsName(data.mds_name || '');
+                                    setTypeValue(data.decision?.type || '');
+                                    setaddMtr(true);
+                                    setActiveStep(1); // Navigate to Grade Detection step
+                                  } catch (error) {
+                                    console.error('Record View API Error:', error);
+                                    setRecordViewError(error.message);
+                                    setShowRecordViewError(true);
+                                  }
+                                }}
+                                sx={{
+                                  color: '#5f6368',
+                                  '&:hover': {
+                                    color: '#4285f4',
+                                    bgcolor: '#e8f0fe'
+                                  }
+                                }}
+                              >
+                                <RemoveRedEyeOutlinedIcon sx={{ fontSize: 20 }} />
+                              </IconButton>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                
+                {/* Pagination */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  mt: 2,
+                  px: 1
+                }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Show {Math.min(currentItems.length, itemsPerPage)} out of {totalItems}
+                  </Typography>
+                  
+                  <div className="flex items-center gap-1">
+                    {/* Previous button */}
+                    <button 
+                      onClick={() => handleChangePage(page - 1)}
+                      disabled={page === 1}
+                      className="flex items-center justify-center h-6 w-6 rounded text-gray-600 bg-white hover:bg-gray-100"
+                    >
+                      <NavigateBeforeIcon sx={{ fontSize: 18 }} />
                     </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      
-      {/* Pagination */}
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        mt: 2,
-        px: 1
-      }}>
-        <Typography variant="body2" color="text.secondary">
-          Show {Math.min(currentItems.length, itemsPerPage)} out of {totalItems}
-        </Typography>
-        
-        <div className="flex items-center gap-1">
-          {/* Previous button */}
-          <button 
-            onClick={() => handleChangePage(page - 1)}
-            disabled={page === 1}
-            className="flex items-center justify-center h-6 w-6 rounded text-gray-600 bg-white hover:bg-gray-100"
-          >
-            <NavigateBeforeIcon sx={{ fontSize: 18 }} />
-          </button>
-          
-          {/* Page numbers */}
-          {getPageNumbers().map((pageNum, index) => (
-            <button 
-              key={index}
-              onClick={() => typeof pageNum === 'number' ? handleChangePage(pageNum) : null}
-              className={`flex items-center justify-center h-6 w-6 text-xs rounded-sm ${
-                pageNum === page 
-                  ? 'bg-gray-800 text-white' 
-                  : pageNum === '...' 
-                    ? 'bg-transparent text-gray-600 cursor-default' 
-                    : 'bg-white text-gray-600 hover:bg-gray-100'
-              }`}
-            >
-              {pageNum}
-            </button>
-          ))}
-          
-          {/* Next button */}
-          <button 
-            onClick={() => handleChangePage(page + 1)}
-            disabled={page === totalPages}
-            className="flex items-center justify-center h-6 w-6 rounded text-gray-600 bg-white hover:bg-gray-100"
-          >
-            <NavigateNextIcon sx={{ fontSize: 18 }} />
-          </button>
-        </div>
-      </Box>
-    </Box>
+                    
+                    {/* Page numbers */}
+                    {getPageNumbers().map((pageNum, index) => (
+                      <button 
+                        key={index}
+                        onClick={() => typeof pageNum === 'number' ? handleChangePage(pageNum) : null}
+                        className={`flex items-center justify-center h-6 w-6 text-xs rounded-sm ${
+                          pageNum === page 
+                            ? 'bg-gray-800 text-white' 
+                            : pageNum === '...' 
+                              ? 'bg-transparent text-gray-600 cursor-default' 
+                              : 'bg-white text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    ))}
+                    
+                    {/* Next button */}
+                    <button 
+                      onClick={() => handleChangePage(page + 1)}
+                      disabled={page === totalPages}
+                      className="flex items-center justify-center h-6 w-6 rounded text-gray-600 bg-white hover:bg-gray-100"
+                    >
+                      <NavigateNextIcon sx={{ fontSize: 18 }} />
+                    </button>
+                  </div>
+                </Box>
+              </>
+            )}
+          </Box>
           </> 
         ) : (
           <Box sx={{ width: '100%', maxWidth: 1100, mx: 'auto'}}>
@@ -1014,7 +1153,7 @@ export default function Dashboard() {
                     </Paper>
                     {/* End card-like header */}
                     {/* Error Alert if any */}
-                      {apiResponse && (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType) ? (
+                      {apiResponse && (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || apiResponse === 'Internal Server Error' || typeof apiResponse === 'string') ? (
                         <Alert 
                           severity="error" 
                           sx={{ 
@@ -1024,7 +1163,7 @@ export default function Dashboard() {
                             }
                           }}
                         >
-                          {apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || 'Unknown error'}
+                          {typeof apiResponse === 'string' ? apiResponse : (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || 'Unknown error')}
                         </Alert>
                     ) : (
                       <Box
@@ -1231,7 +1370,7 @@ export default function Dashboard() {
                     </Paper>
                     {/* End card-like header */}
                     {/* Error Alert if any */}
-                    {apiResponse && (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType) ? (
+                    {apiResponse && (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || apiResponse === 'Internal Server Error' || typeof apiResponse === 'string') ? (
                       <Alert 
                         severity="error" 
                         sx={{ 
@@ -1241,7 +1380,7 @@ export default function Dashboard() {
                           }
                         }}
                       >
-                        {apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || 'Unknown error'}
+                        {typeof apiResponse === 'string' ? apiResponse : (apiResponse.error || apiResponse.errorMessage || apiResponse.errorType || 'Unknown error')}
                       </Alert>
                     ) : (
                       <Box
@@ -1336,10 +1475,28 @@ export default function Dashboard() {
                             }}
                           >
                             {Object.entries(apiResponse).map(([specId, specData]) => {
-                              const resultsArr = specData.results || [];
+                              const resultsArr = specData.unified_report || [];
                               return (
                                 <Box key={specId} sx={{ mb: 4 }}>
-                                  <Typography sx={{ fontWeight: 600, fontSize: 16, mb: 2, color: '#222' }}>
+                                  <Typography 
+                                    sx={{ 
+                                      fontWeight: 600, 
+                                      fontSize: 16, 
+                                      mb: 2, 
+                                      color: '#222',
+                                      cursor: 'pointer',
+                                      '&:hover': {
+                                        color: '#4285f4'
+                                      },
+                                      bgcolor: selectedSpecId === specId ? '#e8f0fe' : 'transparent',
+                                      p: 1,
+                                      borderRadius: 1
+                                    }}
+                                    onClick={() => {
+                                      setSelectedSpecId(specId);
+                                      console.log('Selected Specification ID:', specId);
+                                    }}
+                                  >
                                     Specification ID: {specId}
                                   </Typography>
                                   <Box sx={{ overflowX: 'auto' }}>
@@ -1539,28 +1696,46 @@ export default function Dashboard() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
                         <thead style={{ background: '#f3f4f6' }}>
                           <tr>
-                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Field</th>
-                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Value</th>
+                            {apiResponse && Object.keys(Array.isArray(apiResponse.result) ? apiResponse.result[0] : apiResponse).map((key) => (
+                              <th key={key} style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>
+                                {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                              </th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {[
-                            { field: 'Certificate ID', type: 'string', example: 'HT12086595F', spec: '85~95k', result: 'fail' },
-                            { field: 'Material Grade', type: 'string', example: '4140 80KSI', spec: '100~110k', result: 'pass' },
-                            { field: 'Heat/Lot Number', type: 'string', example: '20259782/122154150', spec: '>28%', result: 'fail' },
-                            { field: 'Dimensions', type: 'string', example: '133.35 mm x 28.448 mm', spec: '<20', result: 'pass' },
-                            { field: 'Delivery Condition', type: 'string', example: 'Quenched and Tempered', spec: '85~95k', result: 'pass' },
-                            { field: 'Manufacturing Route', type: 'string', example: 'EAF + LF + RH+ VD + CC', spec: '100~110k', result: 'fail' },
-                            { field: 'Reduction Ratio', type: 'float', example: '9.4', spec: '>28%', result: 'pass' },
-                            { field: 'Chemical Composition', type: 'JSON', example: '{"C": "0.39%", "Mn": "0.93%"}', spec: '<20', result: 'pass' },
-                            { field: 'Mechanical Props', type: 'JSON', example: '{"Yield": "80 KSI"}', spec: '85~95k', result: 'fail' },
-                            { field: 'Hardness', type: 'float', example: '22.5 HRC', spec: '100~110k', result: 'pass' },
-                            { field: 'Charpy Test', type: 'JSON', example: '{"Temp": "-10°C", "Energy": "42J"}', spec: '>28%', result: 'pass' },
-                            { field: 'NDT Results', type: 'JSON', example: '{"UT": "ASTM A388"}', spec: '<20', result: 'pass' },
-                          ].map(({ field, type, example, spec, result }) => (
-                            <tr key={field}>
-                              <td style={{ padding: '10px 16px' }}>{field}</td>
-                              <td style={{ padding: '10px 16px' }}>{example}</td>
+                          {apiResponse && (
+                            Array.isArray(apiResponse.result) ? apiResponse.result : [apiResponse]
+                          ).map((item, index) => (
+                            <tr key={index} className="border-t border-gray-200">
+                              {Object.entries(item).map(([key, value]) => (
+                                <td key={key} style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>
+                                  {key === 'Status' ? (
+                                    value === 'Pass' && (
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', padding: '2px 12px', borderRadius: 16,
+                                        background: '#e6f4ea', color: '#188038', fontWeight: 500, fontSize: 14, border: '1px solid #b7e1cd', verticalAlign: 'middle'
+                                      }}>
+                                        <span style={{ fontSize: 16, marginRight: 6 }}>✅</span> Pass
+                                      </span>
+                                    ) || value === 'Fail' && (
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', padding: '2px 12px', borderRadius: 16,
+                                        background: '#fbeaea', color: '#d93025', fontWeight: 500, fontSize: 14, border: '1px solid #fbcaca', verticalAlign: 'middle'
+                                      }}>
+                                        <span style={{ fontSize: 16, marginRight: 6 }}>❌</span> Fail
+                                      </span>
+                                    ) || value === 'Review' && (
+                                      <span style={{
+                                        display: 'inline-flex', alignItems: 'center', padding: '2px 12px', borderRadius: 16,
+                                        background: '#fff4e5', color: '#e58900', fontWeight: 500, fontSize: 14, border: '1px solid #ffe0b2', verticalAlign: 'middle'
+                                      }}>
+                                        <span style={{ fontSize: 16, marginRight: 6 }}>⚠️</span> Review
+                                      </span>
+                                    )
+                                  ) : value}
+                                </td>
+                              ))}
                             </tr>
                           ))}
                         </tbody>
@@ -1590,171 +1765,383 @@ export default function Dashboard() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 8, overflow: 'hidden' }}>
                         <thead style={{ background: '#f3f4f6' }}>
                           <tr>
+                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Checkpoint</th>
+                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Category</th>
                             <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Field</th>
-                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Value</th>
+                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>MTR</th>
+                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Unified</th>
+                            <th style={{ textAlign: 'left', padding: '12px 16px', fontWeight: 600, fontSize: 15, color: '#444' }}>Status</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {[
-                            { field: 'Certificate ID', type: 'string', example: 'HT12086595F', spec: '85~95k', result: 'fail' },
-                            { field: 'Material Grade', type: 'string', example: '4140 80KSI', spec: '100~110k', result: 'pass' },
-                            { field: 'Heat/Lot Number', type: 'string', example: '20259782/122154150', spec: '>28%', result: 'fail' },
-                            { field: 'Dimensions', type: 'string', example: '133.35 mm x 28.448 mm', spec: '<20', result: 'pass' },
-                            { field: 'Delivery Condition', type: 'string', example: 'Quenched and Tempered', spec: '85~95k', result: 'pass' },
-                            { field: 'Manufacturing Route', type: 'string', example: 'EAF + LF + RH+ VD + CC', spec: '100~110k', result: 'fail' },
-                            { field: 'Reduction Ratio', type: 'float', example: '9.4', spec: '>28%', result: 'fail' },
-                            { field: 'Chemical Composition', type: 'JSON', example: '{"C": "0.39%", "Mn": "0.93%"}', spec: '<20', result: 'pass' },
-                            { field: 'Mechanical Props', type: 'JSON', example: '{"Yield": "80 KSI"}', spec: '85~95k', result: 'fail' },
-                            { field: 'Hardness', type: 'float', example: '22.5 HRC', spec: '100~110k', result: 'pass' },
-                            { field: 'Charpy Test', type: 'JSON', example: '{"Temp": "-10°C", "Energy": "42J"}', spec: '>28%', result: 'pass' },
-                            { field: 'NDT Results', type: 'JSON', example: '{"UT": "ASTM A388"}', spec: '<20', result: 'pass' },
-                          ].map(({ field, type, example, spec, result }) => (
-                            <tr key={field}>
-                              <td style={{ padding: '10px 16px' }}>{field}</td>
-                              <td style={{ padding: '10px 16px' }}>{example}</td>
+                        {apiResponse && (
+                            Array.isArray(apiResponse.openai_final_report) ? apiResponse.openai_final_report : [apiResponse]
+                          ).map((item, index) => (
+                            <tr key={index} className="border-t border-gray-200">
+                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{item.checkpoint}</td>
+                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{item.category}</td>
+                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{item.field}</td>
+                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{item.MTR}</td>
+                              <td style={{ padding: '12px 16px', fontSize: 14, color: '#444' }}>{item.Unified}</td>
+                              <td style={{ padding: '12px 16px', fontSize: 14 }}>
+                                {editingStatusRow === index ? (
+                                  <select
+                                    value={statusChanges[index] || item.Status}
+                                    autoFocus
+                                    onChange={e => {
+                                      setStatusChanges(prev => ({ ...prev, [index]: e.target.value }));
+                                      setEditingStatusRow(null);
+                                    }}
+                                    onBlur={() => setEditingStatusRow(null)}
+                                    style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '16px',
+                                      border: '1px solid',
+                                      fontSize: '14px',
+                                      fontWeight: 500,
+                                      cursor: 'pointer',
+                                      ...(statusChanges[index] || item.Status) === 'Pass' ? {
+                                        background: '#e6f4ea', color: '#188038', borderColor: '#b7e1cd'
+                                      } : (statusChanges[index] || item.Status) === 'Fail' ? {
+                                        background: '#fbeaea', color: '#d93025', borderColor: '#fbcaca'
+                                      } : {
+                                        background: '#fff4e5', color: '#e58900', borderColor: '#ffe0b2'
+                                      }
+                                    }}
+                                  >
+                                    <option value="Pass">✅ Pass</option>
+                                    <option value="Fail">❌ Fail</option>
+                                    <option value="Review">⚠️ Review</option>
+                                  </select>
+                                ) : (
+                                  <span
+                                    onClick={() => setEditingStatusRow(index)}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', padding: '2px 12px', borderRadius: 16,
+                                      fontWeight: 500, fontSize: 14, border: '1px solid', cursor: 'pointer',
+                                      ...(statusChanges[index] || item.Status) === 'Pass' ? {
+                                        background: '#e6f4ea', color: '#188038', borderColor: '#b7e1cd'
+                                      } : (statusChanges[index] || item.Status) === 'Fail' ? {
+                                        background: '#fbeaea', color: '#d93025', borderColor: '#fbcaca'
+                                      } : {
+                                        background: '#fff4e5', color: '#e58900', borderColor: '#ffe0b2'
+                                      }
+                                    }}
+                                  >
+                                    {(statusChanges[index] || item.Status) === 'Pass' && <span style={{ fontSize: 16, marginRight: 6 }}>✅</span>}
+                                    {(statusChanges[index] || item.Status) === 'Fail' && <span style={{ fontSize: 16, marginRight: 6 }}>❌</span>}
+                                    {(statusChanges[index] || item.Status) === 'Review' && <span style={{ fontSize: 16, marginRight: 6 }}>⚠️</span>}
+                                    {statusChanges[index] || item.Status}
+                                  </span>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </Box>
-                    {/* Approve/Reject Buttons */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4, px: 2 }}>
-                      <Button variant="outlined" sx={{ color: '#222', borderColor: '#e0e0e0', fontWeight: 600, textTransform: 'none', borderRadius: 2, px: 5, py: 1.5, fontSize: 16, bgcolor: '#f3f4f6', '&:hover': { borderColor: '#bdbdbd', bgcolor: '#e0e0e0' } }}>Reject</Button>
-                      <Button variant="contained" sx={{ bgcolor: '#4285f4', color: '#fff', fontWeight: 600, textTransform: 'none', borderRadius: 2, px: 5, py: 1.5, fontSize: 16, boxShadow: 'none', '&:hover': { bgcolor: '#1a73e8' } }}>Approve</Button>
-                    </Box>
                   </Paper>
                 )}
                 {/* Continue & Back Buttons */}
-                <Box sx={{ position: 'relative', minHeight: 80, mt: 6, mb:4 }}>
-                  {activeStep < steps.length - 1 && (
+                {activeStep !== 6 ? (
+                  <Box sx={{ position: 'relative', minHeight: 80, mt: 6, mb:4 }}>
+                    {/* Show back button for all steps including step 1 */}
                     <Button
-                      variant="contained"
+                      variant="outlined"
+                      startIcon={<ArrowBackIcon />}
                       sx={{
-                        bgcolor: '#4285f4',
-                        color: '#fff',
+                        color: '#4285f4',
+                        borderColor: '#4285f4',
                         px: 4,
                         py: 1.5,
                         borderRadius: '10px',
                         fontWeight: 600,
                         fontSize: 16,
                         textTransform: 'none',
-                        '&:hover': { bgcolor: '#1a73e8' },
+                        '&:hover': { borderColor: '#1a73e8', bgcolor: '#e8f0fe' },
                         minWidth: 160,
                         position: 'absolute',
-                        right: 0,
+                        left: 0,
                         bottom: 0,
                       }}
-                      disabled={loading}
                       onClick={() => {
                         if (activeStep === 0) {
-                          if (!uploadedFile) {
-                            setShowUploadError(true);
-                            setLoading(false);
-                            return;
-                          }
-                          if (!mdsName.trim()) {
-                            setMdsNameError(true);
-                            setLoading(false);
-                            return;
-                          }
-                          
-                          setLoading(true);
-                          
-                          const formData = new FormData();
-                          formData.append('file', uploadedFile);
-                          formData.append('mds_name', mdsName);
-
-                          fetch('/api/proxy/supervisior', {
-                            method: 'POST',
-                            body: formData
-                          })
-                          .then(response => response.json())
-                          .then(data => {
-                            console.log('Supervisor Decision API Response:', data);
-                            console.log('Type from API:', data?.decision?.type);
-                            setApiResponse(data);
-                            setTypeValue(data?.decision?.type);
-                            setLoading(false);
-                            setActiveStep((prev) => prev + 1);
-                          })
-                          .catch(error => {
-                            console.error('Error calling supervisor decision API:', error);
-                            setApiResponse(error);
-                            setLoading(false);
-                          });
-                        } else if (activeStep === 1) {
-                          setLoading(true);
-                          
-                          const formData = new FormData();
-                          formData.append('pdf_text_id', apiResponse?.pdf_text || '');
-
-                          // Log the pdf_text_id being sent to the extract key API
-                          console.log('Sending pdf_text_id to extract key API:', apiResponse?.pdf_text || '');
-
-                          fetch('/api/proxy/extractkey', {
-                            method: 'POST',
-                            body: formData
-                          })
-                          .then(response => response.json())
-                          .then(data => {
-                            console.log('Extract Keys API Response:', data);
-                            setApiResponse(data);
-                            if (data?.material_identification?.material_grade) {
-                              setMaterialType(data.material_identification.material_grade);
-                            }
-                            if (data?.mtr_keys_id) {
-                              setMtrKeysId(data.mtr_keys_id);
-                            }
-                            setLoading(false);
-                            setActiveStep((prev) => prev + 1);
-                          })
-                          .catch(error => {
-                            console.error('Error calling extract keys API:', error);
-                            setApiResponse(error);
-                            setLoading(false);
-                          });
-                        } else if (activeStep === 2) {
-                          setLoading(true);
-                          const formData = new FormData();
-                          formData.append('mds_name', mdsName);
-                          formData.append('grade_label', typeValue);
-                          if (mtrKeysId) {
-                            formData.append('mtr_id', mtrKeysId);
-                          }
-                          console.log('Sending to unified output API:', { 
-                            mds_name: mdsName, 
-                            grade_label: typeValue,
-                            mtr_id: mtrKeysId
-                          });
-                          fetch('/api/proxy/getunifiedoutput', {
-                            method: 'POST',
-                            body: formData
-                          })
-                          .then(response => response.json())
-                          .then(data => {
-                            console.log('Unified Output API Response:', data);
-                            setApiResponse(data);
-                            setLoading(false);
-                            setActiveStep((prev) => prev + 1);
-                          })
-                          .catch(error => {
-                            console.error('Error calling unified output API:', error);
-                            setApiResponse(error);
-                            setLoading(false);
-                          });
+                          // If we're in step 1, go back to dashboard
+                          setaddMtr(false);
+                          // Reset all states when going back to dashboard
+                          setApiResponse(null);
+                          setStep1Response(null);
+                          setStep2Response(null);
+                          setStep3Response(null);
+                          setStep4Response(null);
+                          setUploadedFile(null);
+                          setMdsName('');
+                          setTypeValue('');
+                          setMaterialType('');
+                          setMtrKeysId(null);
+                          setActiveStep(0);
                         } else {
-                          setLoading(true);
-                          setTimeout(() => {
-                            setLoading(false);
-                            setActiveStep((prev) => prev + 1);
-                          }, 1500);
+                          // For other steps, store current response before going back
+                          if (activeStep === 2) {
+                            setStep2Response(apiResponse);
+                          } else if (activeStep === 3) {
+                            setStep3Response(apiResponse);
+                          } else if (activeStep === 4) {
+                            setStep4Response(apiResponse);
+                          }
+
+                          // Restore previous response when going back
+                          if (activeStep === 2) {
+                            setApiResponse(step1Response);
+                          } else if (activeStep === 3) {
+                            setApiResponse(step2Response);
+                          } else if (activeStep === 4) {
+                            setApiResponse(step3Response);
+                          } else if (activeStep === 5) {
+                            setApiResponse(step4Response);
+                          }
+
+                          setActiveStep((prev) => prev - 1);
                         }
                       }}
                     >
-                      Continue
+                      Back
                     </Button>
-                  )}
-                </Box>
+                    {activeStep < steps.length - 1 && (
+                      <Button
+                        variant="contained"
+                        sx={{
+                          bgcolor: '#4285f4',
+                          color: '#fff',
+                          px: 4,
+                          py: 1.5,
+                          borderRadius: '10px',
+                          fontWeight: 600,
+                          fontSize: 16,
+                          textTransform: 'none',
+                          '&:hover': { bgcolor: '#1a73e8' },
+                          minWidth: 160,
+                          position: 'absolute',
+                          right: 0,
+                          bottom: 0,
+                        }}
+                        disabled={loading}
+                        onClick={() => {
+                          if (activeStep === 0) {
+                            if (!uploadedFile) {
+                              setShowUploadError(true);
+                              setLoading(false);
+                              return;
+                            }
+                            if (!mdsName.trim()) {
+                              setMdsNameError(true);
+                              setLoading(false);
+                              return;
+                            }
+                            
+                            setLoading(true);
+                            
+                            const formData = new FormData();
+                            formData.append('file', uploadedFile);
+                            formData.append('mds_name', mdsName);
+
+                            fetch('/api/proxy/supervisior', {
+                              method: 'POST',
+                              body: formData
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                              console.log('Supervisor Decision API Response:', data);
+                              console.log('Type from API:', data?.decision?.type);
+                              setApiResponse(data);
+                              setStep1Response(data);
+                              setTypeValue(data?.decision?.type);
+                              setLoading(false);
+                              setActiveStep((prev) => prev + 1);
+                            })
+                            .catch(error => {
+                              console.error('Error calling supervisor decision API:', error);
+                              setApiResponse(error);
+                              setLoading(false);
+                            });
+                          } else if (activeStep === 1) {
+                            setLoading(true);
+                            
+                            const formData = new FormData();
+                            formData.append('pdf_text_id', apiResponse?.pdf_text || '');
+
+                            console.log('Sending pdf_text_id to extract key API:', apiResponse?.pdf_text || '');
+
+                            fetch('/api/proxy/extractkey', {
+                              method: 'POST',
+                              body: formData
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                              console.log('Extract Keys API Response:', data);
+                              setApiResponse(data);
+                              setStep2Response(data);
+                              if (data?.material_identification?.material_grade) {
+                                setMaterialType(data.material_identification.material_grade);
+                              }
+                              if (data?.mtr_keys_id) {
+                                setMtrKeysId(data.mtr_keys_id);
+                              }
+                              setLoading(false);
+                              setActiveStep((prev) => prev + 1);
+                            })
+                            .catch(error => {
+                              console.error('Error calling extract keys API:', error);
+                              setApiResponse(error);
+                              setLoading(false);
+                            });
+                          } else if (activeStep === 2) {
+                            setLoading(true);
+                            const formData = new FormData();
+                            formData.append('mds_name', mdsName);
+                            formData.append('grade_label', typeValue);
+                            if (mtrKeysId) {
+                              formData.append('mtr_id', mtrKeysId);
+                            }
+                            console.log('Sending to unified output API:', { 
+                              mds_name: mdsName, 
+                              grade_label: typeValue,
+                              mtr_id: mtrKeysId
+                            });
+                            fetch('/api/proxy/getunifiedoutput', {
+                              method: 'POST',
+                              body: formData
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                              console.log('Unified Output API Response:', data);
+                              setApiResponse(data);
+                              setStep3Response(data);
+                              setLoading(false);
+                              setActiveStep((prev) => prev + 1);
+                            })
+                            .catch(error => {
+                              console.error('Error calling unified output API:', error);
+                              setApiResponse(error);
+                              setLoading(false);
+                            });
+                          } else if (activeStep === 3) {
+                            setLoading(true);
+                            
+                            // Check if we have the required data
+                            if (!mtrKeysId || !selectedSpecId) {
+                              setShowUnifiedFileError(true);
+                              setLoading(false);
+                              return;
+                            }
+
+                            const formData = new FormData();
+                            formData.append('mtr_id', mtrKeysId);
+                            formData.append('unified_file', selectedSpecId);
+
+                            console.log('Sending to final report API:', {
+                              mtr_id: mtrKeysId,
+                              unified_file: selectedSpecId
+                            });
+
+                            fetch('/api/proxy/final', {
+                              method: 'POST',
+                              body: formData
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                              console.log('Final Report API Response:', data);
+                              setApiResponse(data);
+                          
+                              setLoading(false);
+                              // Skip steps 5 and 6, go directly to step 7 (Final Report Review)
+                              setActiveStep(6);
+                            })
+                            .catch(error => {
+                              console.error('Error calling final report API:', error);
+                              setApiResponse(error);
+                              setLoading(false);
+                            });
+                          } else {
+                            setLoading(true);
+                            setTimeout(() => {
+                              setLoading(false);
+                              setActiveStep((prev) => prev + 1);
+                            }, 1500);
+                          }
+                        }}
+                      >
+                        Continue
+                      </Button>
+                    )}
+                  </Box>
+                ) : (
+                  <Box sx={{ position: 'relative', minHeight: 80, mt: 6, mb:4 }}>
+                    <Button
+                      variant="outlined"
+                      startIcon={<ArrowBackIcon />}
+                      sx={{
+                        color: '#4285f4',
+                        borderColor: '#4285f4',
+                        px: 4,
+                        py: 1.5,
+                        borderRadius: '10px',
+                        fontWeight: 600,
+                        fontSize: 16,
+                        textTransform: 'none',
+                        '&:hover': { borderColor: '#1a73e8', bgcolor: '#e8f0fe' },
+                        minWidth: 160,
+                        position: 'absolute',
+                        left: 0,
+                        bottom: 0,
+                      }}
+                      onClick={() => {
+                        // Navigate to step 4 (Unified Spec) instead of step 6
+                        setActiveStep(3);
+                        // Restore the unified spec response
+                        setApiResponse(step3Response);
+                      }}
+                    >
+                      Back
+                    </Button>
+                    <Box sx={{ display: 'flex', gap: 2, position: 'absolute', right: 0, bottom: 0 }}>
+                      <Button
+                        variant="outlined"
+                        sx={{
+                          color: '#222',
+                          borderColor: '#e0e0e0',
+                          fontWeight: 600,
+                          textTransform: 'none',
+                          borderRadius: 2,
+                          px: 5,
+                          py: 1.5,
+                          fontSize: 16,
+                          bgcolor: '#f3f4f6',
+                          '&:hover': { borderColor: '#bdbdbd', bgcolor: '#e0e0e0' }
+                        }}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        variant="contained"
+                        sx={{
+                          bgcolor: '#4285f4',
+                          color: '#fff',
+                          fontWeight: 600,
+                          textTransform: 'none',
+                          borderRadius: 2,
+                          px: 5,
+                          py: 1.5,
+                          fontSize: 16,
+                          boxShadow: 'none',
+                          '&:hover': { bgcolor: '#1a73e8' }
+                        }}
+                      >
+                        Approve
+                      </Button>
+                    </Box>
+                  </Box>
+                )}
               </>
             )}
             {/* Upload error Snackbar */}
@@ -1766,6 +2153,46 @@ export default function Dashboard() {
             >
               <Alert severity="error" onClose={() => setShowUploadError(false)}>
                 Please upload a PDF or image before continuing.
+              </Alert>
+            </Snackbar>
+            {/* Unified File Selection Error Snackbar */}
+            <Snackbar
+              open={showUnifiedFileError}
+              autoHideDuration={3000}
+              onClose={() => setShowUnifiedFileError(false)}
+              anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+            >
+              <Alert 
+                severity="error" 
+                onClose={() => setShowUnifiedFileError(false)}
+                sx={{ 
+                  width: '100%',
+                  '& .MuiAlert-message': {
+                    fontSize: '14px'
+                  }
+                }}
+              >
+                Please select a unified file before continuing
+              </Alert>
+            </Snackbar>
+            {/* Record View Error Snackbar */}
+            <Snackbar
+              open={showRecordViewError}
+              autoHideDuration={3000}
+              onClose={() => setShowRecordViewError(false)}
+              anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+            >
+              <Alert 
+                severity="error" 
+                onClose={() => setShowRecordViewError(false)}
+                sx={{ 
+                  width: '100%',
+                  '& .MuiAlert-message': {
+                    fontSize: '14px'
+                  }
+                }}
+              >
+                {recordViewError}
               </Alert>
             </Snackbar>
           </Box>
