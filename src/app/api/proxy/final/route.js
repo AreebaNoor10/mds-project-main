@@ -33,9 +33,27 @@ export async function POST(request) {
 
     return NextResponse.json(data);
   } catch (error) {
+    console.error('Final report API error:', error);
     return NextResponse.json(
-      { error: 'Failed to connect to the server' },
+      { 
+        errorType: 'Error',
+        errorMessage: error.message || 'An unknown error has occurred'
+      },
       { status: 500 }
     );
   }
+}
+
+// Add OPTIONS handler for CORS preflight requests
+export async function OPTIONS() {
+  return NextResponse.json(
+    {},
+    {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      },
+    }
+  );
 }
