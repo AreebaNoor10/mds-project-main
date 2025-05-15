@@ -9,7 +9,6 @@ export async function POST(request) {
 
     console.log('Making request to unified output API with:', { mds_name, grade_label, mtr_id });
 
-    // No timeout or AbortController
     const response = await fetch('http://20.205.169.17:3002/get_unified_output', {
       method: 'POST',
       headers: {
@@ -32,15 +31,20 @@ export async function POST(request) {
     }
 
     if (!response.ok) {
-      // Just forward the error from the backend
-      return NextResponse.json(data, {
-        status: response.status,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      return NextResponse.json(
+        { 
+          errorType: 'APIError',
+          errorMessage: data.error || data.message || 'Backend server error'
+        }, 
+        { 
+          status: response.status,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          }
         }
-      });
+      );
     }
 
     return NextResponse.json(data, {
@@ -51,15 +55,21 @@ export async function POST(request) {
       }
     });
   } catch (error) {
-    // Just forward the error as plain text
-    return NextResponse.json({ error: error.message }, {
-      status: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    console.error('Unified output API error:', error);
+    return NextResponse.json(
+      { 
+        errorType: 'Error',
+        errorMessage: error.message || 'An unknown error has occurred'
+      },
+      { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        }
       }
-    });
+    );
   }
 }
 
