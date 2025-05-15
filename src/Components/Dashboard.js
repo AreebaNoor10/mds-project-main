@@ -266,14 +266,25 @@ export default function Dashboard() {
       });
       const data = await response.json();
       console.log('Unified Output API Response:', data);
+      
       if (!response.ok) {
-        throw new Error(data.errorMessage || 'Failed to get unified output');
+        const errorMessage = data.errorMessage || data.error || 'Failed to get unified output';
+        throw new Error(errorMessage);
       }
+      
+      if (data.errorType) {
+        throw new Error(data.errorMessage || 'An error occurred while processing the request');
+      }
+      
       setApiResponse(data);
       setApiError(null);
     } catch (error) {
+      console.error('Unified output error:', error);
       setApiError(error.message || 'An error occurred while fetching unified output');
       setApiResponse(null);
+      // Show error to user
+      setShowRecordViewError(true);
+      setRecordViewError(error.message || 'Failed to get unified output. Please try again.');
     } finally {
       setLoading(false);
     }
